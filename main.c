@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define WIDTH 51
-#define HEIGHT 51
+#define HEIGHT 11
+#define WIDTH 21
 #define ROAD 0
 #define WALL 1
 
-int map[WIDTH][HEIGHT];
+int map[HEIGHT][WIDTH];
 
 struct {
     int y, x;
@@ -24,8 +24,8 @@ struct {
 void maze_init()
 {
     int x, y;
-    for (y = 0; y < WIDTH; y++) {
-        for (x = 0; x < HEIGHT; x++) {
+    for (y = 0; y < HEIGHT; y++) {
+        for (x = 0; x < WIDTH; x++) {
             map[y][x] = WALL;
         }
     }
@@ -80,8 +80,8 @@ void print()
     int x, y;
     map[0][1] = 0;
     map[HEIGHT - 1][WIDTH-2] = 0;
-    for (y = 0; y < WIDTH; y++ ) {
-        for (x = 0; x < HEIGHT; x++) {
+    for (y = 0; y < HEIGHT; y++ ) {
+        for (x = 0; x < WIDTH; x++) {
             fprintf(stdout, "%s ", (map[y][x] == WALL) ? "■" : " ");
         }
         fprintf(stdout, "\n");
