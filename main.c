@@ -12,8 +12,8 @@ int map[HEIGHT][WIDTH];
 struct {
     int y, x;
 } dir[] = {
-    {1, 0}, /* UP */
-    {-1, 0}, /* DOWN */
+    {1, 0}, /* DOWN */
+    {-1, 0}, /* UP */
     {0, 1}, /* RIGHT */
     {0, -1} /* LEFT */
 };
@@ -21,7 +21,7 @@ struct {
 /*
 * 迷路を壁で埋める
 */
-void maze_init()
+void maze_init(void)
 {
     int x, y;
     for (y = 0; y < HEIGHT; y++) {
@@ -33,16 +33,11 @@ void maze_init()
 
 /*
 * 掘り始める座標を吐き出す
+* dim は辺の長さ全体（3 以上の奇数）。[1, dim - 2] の奇数を一様に返す
 */
-int gen_rand_odd(int mod)
+int gen_rand_odd(int dim)
 {
-    int r = rand() % mod;
-    if (r % 2 == 0) {
-        r++;
-    } else if (r > mod) {
-        r -= 2;
-    }
-    return r;
+    return 1 + 2 * (rand() % ((dim - 1) / 2));
 }
 
 void make_maze(int y, int x)
@@ -73,13 +68,20 @@ void make_maze(int y, int x)
 }
 
 /*
+* 入口と出口を開ける
+*/
+void open_entrance_exit(void)
+{
+    map[0][1] = ROAD;
+    map[HEIGHT - 1][WIDTH - 2] = ROAD;
+}
+
+/*
 * 迷路の書き出し
 */
-void print()
+void print(void)
 {
     int x, y;
-    map[0][1] = 0;
-    map[HEIGHT - 1][WIDTH-2] = 0;
     for (y = 0; y < HEIGHT; y++ ) {
         for (x = 0; x < WIDTH; x++) {
             fprintf(stdout, "%s ", (map[y][x] == WALL) ? "■" : " ");
@@ -88,15 +90,24 @@ void print()
     }
 }
 
-int main()
+int main(void)
 {
-    time_t t;
-    int x = gen_rand_odd(WIDTH - 2);
-    int y = gen_rand_odd(HEIGHT - 2);
-    time(&t);
-    srand(t);
+    struct timespec ts;
+    int x, y;
+
+    /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
+    if (timespec_get(&ts, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        return 1;
+    }
+    srand((unsigned int)ts.tv_sec ^ (unsigned int)ts.tv_nsec);
+
+    x = gen_rand_odd(WIDTH);
+    y = gen_rand_odd(HEIGHT);
     maze_init();
+    map[y][x] = ROAD;
     make_maze(y, x);
+    open_entrance_exit();
     print();
     return 0;
 }
