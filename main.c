@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define HEIGHT 11
-#define WIDTH 21
 #define ROAD 0
 #define WALL 1
+#define AT(y, x) map[(y) * (width) + (x)]
 
-int map[HEIGHT][WIDTH];
+int height = 11;
+int width = 21;
+int *map = NULL;
 
 struct {
     int y, x;
@@ -24,9 +25,9 @@ struct {
 void maze_init(void)
 {
     int x, y;
-    for (y = 0; y < HEIGHT; y++) {
-        for (x = 0; x < WIDTH; x++) {
-            map[y][x] = WALL;
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
+            AT(y, x) = WALL;
         }
     }
 }
@@ -51,7 +52,7 @@ void make_maze(int y, int x)
         int py = y + dir[d].y * 2;
         int px = x + dir[d].x * 2;
 
-        if ( px < 0 || px >= WIDTH || py < 0 || py >= HEIGHT || map[py][px] != WALL ) {
+        if ( px < 0 || px >= width || py < 0 || py >= height || AT(py, px) != WALL ) {
             d++;
             if (d == 4) {
                 d = 0;
@@ -61,8 +62,8 @@ void make_maze(int y, int x)
             }
             continue;
         }
-        map[y + dir[d].y][x + dir[d].x] = ROAD;
-        map[py][px] = ROAD;
+        AT(y + dir[d].y, x + dir[d].x) = ROAD;
+        AT(py, px) = ROAD;
         make_maze(py, px);
     }
 }
@@ -72,8 +73,8 @@ void make_maze(int y, int x)
 */
 void open_entrance_exit(void)
 {
-    map[0][1] = ROAD;
-    map[HEIGHT - 1][WIDTH - 2] = ROAD;
+    AT(0, 1) = ROAD;
+    AT(height - 1, width - 2) = ROAD;
 }
 
 /*
@@ -82,9 +83,9 @@ void open_entrance_exit(void)
 void print(void)
 {
     int x, y;
-    for (y = 0; y < HEIGHT; y++ ) {
-        for (x = 0; x < WIDTH; x++) {
-            fputs((map[y][x] == WALL) ? "██" : "  ", stdout);
+    for (y = 0; y < height; y++ ) {
+        for (x = 0; x < width; x++) {
+            fputs((AT(y, x) == WALL) ? "██" : "  ", stdout);
         }
         fputc('\n', stdout);
     }
@@ -102,12 +103,19 @@ int main(void)
     }
     srand((unsigned int)ts.tv_sec ^ (unsigned int)ts.tv_nsec);
 
-    x = gen_rand_odd(WIDTH);
-    y = gen_rand_odd(HEIGHT);
+    map = malloc((size_t)height * (size_t)width * sizeof(int));
+    if (map == NULL) {
+        fprintf(stderr, "迷路用メモリの確保に失敗しました\n");
+        return 1;
+    }
+
+    x = gen_rand_odd(width);
+    y = gen_rand_odd(height);
     maze_init();
-    map[y][x] = ROAD;
+    AT(y, x) = ROAD;
     make_maze(y, x);
     open_entrance_exit();
     print();
+    free(map);
     return 0;
 }
