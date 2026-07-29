@@ -84,9 +84,9 @@ void print(void)
     int x, y;
     for (y = 0; y < HEIGHT; y++ ) {
         for (x = 0; x < WIDTH; x++) {
-            fprintf(stdout, "%s ", (map[y][x] == WALL) ? "■" : " ");
+            fputs((map[y][x] == WALL) ? "██" : "  ", stdout);
         }
-        fprintf(stdout, "\n");
+        fputc('\n', stdout);
     }
 }
 
