@@ -1,7 +1,7 @@
-CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -pedantic -O2
+CFLAGS = -std=c11 -Wall -Wextra -pedantic -O2
 SANITIZE_FLAGS = -fsanitize=address,undefined -g -O1
 TARGET = maze
+SANITIZE_TARGET = maze-sanitize
 SRC = main.c
 
 .PHONY: all sanitize clean
@@ -11,9 +11,10 @@ all: $(TARGET)
 $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) -o $@ $(SRC)
 
-# 通常ビルドと同じ成果物を上書きするため、必ず clean してから作り直す
-sanitize: CFLAGS += $(SANITIZE_FLAGS)
-sanitize: clean $(TARGET)
+sanitize: $(SANITIZE_TARGET)
+
+$(SANITIZE_TARGET): $(SRC)
+	$(CC) $(CFLAGS) $(SANITIZE_FLAGS) -o $@ $(SRC)
 
 clean:
-	rm -f $(TARGET) *.o
+	rm -f $(TARGET) $(SANITIZE_TARGET) *.o

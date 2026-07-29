@@ -1,3 +1,4 @@
-maze
+/maze
+/maze-sanitize
 a.out
 *.o
