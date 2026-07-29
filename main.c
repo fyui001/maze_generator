@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -91,10 +92,47 @@ void print(void)
     }
 }
 
-int main(void)
+/*
+* 寸法文字列をパースする。3〜711 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
+*/
+static int parse_dim(const char *s, int *out)
+{
+    char *endptr;
+    long v;
+
+    errno = 0;
+    v = strtol(s, &endptr, 10);
+    if (endptr == s || *endptr != '\0') {
+        fprintf(stderr, "寸法が整数ではありません: %s\n", s);
+        return 1;
+    }
+    if (v < 3 || v > 711 || v % 2 != 1) {
+        fprintf(stderr, "寸法は 3〜711 の奇数で指定してください: %s\n", s);
+        return 1;
+    }
+    *out = (int)v;
+    return 0;
+}
+
+int main(int argc, char *argv[])
 {
     struct timespec ts;
     int x, y;
+
+    if (argc >= 4) {
+        fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH]\n", argv[0]);
+        return 1;
+    }
+    if (argc == 2) {
+        if (parse_dim(argv[1], &height) != 0) {
+            return 1;
+        }
+        width = height;
+    } else if (argc == 3) {
+        if (parse_dim(argv[1], &height) != 0 || parse_dim(argv[2], &width) != 0) {
+            return 1;
+        }
+    }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
     if (timespec_get(&ts, TIME_UTC) == 0) {
