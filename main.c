@@ -115,7 +115,7 @@ void print(void)
 }
 
 /*
-* 寸法文字列をパースする。3〜711 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
+* 寸法文字列をパースする。3〜8191 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
 */
 static int parse_dim(const char *s, int *out)
 {
@@ -128,8 +128,8 @@ static int parse_dim(const char *s, int *out)
         fprintf(stderr, "寸法が整数ではありません: %s\n", s);
         return 1;
     }
-    if (v < 3 || v > 711 || v % 2 != 1) {
-        fprintf(stderr, "寸法は 3〜711 の奇数で指定してください: %s\n", s);
+    if (v < 3 || v > 8191 || v % 2 != 1) {
+        fprintf(stderr, "寸法は 3〜8191 の奇数で指定してください: %s\n", s);
         return 1;
     }
     *out = (int)v;
