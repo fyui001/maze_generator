@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define ROAD 0
@@ -99,6 +100,51 @@ void open_entrance_exit(void)
 }
 
 /*
+* 入口から出口までを BFS で探索し、到達できたら 1 を返す
+* queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
+* parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
+*/
+int solve_maze(int *queue, unsigned char *parent_dir)
+{
+    int goal_y = height - 1, goal_x = width - 2;
+    size_t head = 0, tail = 0;
+
+    memset(parent_dir, 0xFF, (size_t)height * (size_t)width * sizeof(*parent_dir));
+
+    queue[tail++] = 0 * width + 1;
+    parent_dir[0 * width + 1] = 4;   /* START: 親を持たない根 */
+
+    while (head < tail) {
+        int idx = queue[head++];
+        int y = idx / width;
+        int x = idx % width;
+        int d;
+
+        if (y == goal_y && x == goal_x) {
+            return 1;
+        }
+
+        for (d = 0; d < 4; d++) {
+            int ny = y + dir[d].y;
+            int nx = x + dir[d].x;
+            int nidx;
+
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || AT(ny, nx) != ROAD) {
+                continue;
+            }
+            nidx = ny * width + nx;
+            if (parent_dir[nidx] != 0xFF) {
+                continue;
+            }
+            parent_dir[nidx] = (unsigned char)d;
+            queue[tail++] = nidx;
+        }
+    }
+
+    return 0;
+}
+
+/*
 * 迷路の書き出し
 */
 void print(void)
@@ -138,7 +184,10 @@ int main(int argc, char *argv[])
 {
     struct timespec ts;
     Frame *stack;
+    int *queue;
+    unsigned char *parent_dir;
     int x, y;
+    int reached;
     int ok;
 
     if (argc >= 4) {
@@ -182,7 +231,33 @@ int main(int argc, char *argv[])
     maze_init();
     AT(y, x) = ROAD;
     make_maze(y, x, stack);
+    /* stack はここが最後の参照。求解用メモリを確保する前に返す */
+    free(stack);
     open_entrance_exit();
+
+    queue = malloc((size_t)height * (size_t)width * sizeof(*queue));
+    if (queue == NULL) {
+        fprintf(stderr, "経路探索用キューの確保に失敗しました\n");
+        free(map);
+        return 1;
+    }
+    parent_dir = malloc((size_t)height * (size_t)width * sizeof(*parent_dir));
+    if (parent_dir == NULL) {
+        fprintf(stderr, "経路復元用メモリの確保に失敗しました\n");
+        free(queue);
+        free(map);
+        return 1;
+    }
+
+    reached = solve_maze(queue, parent_dir);
+    if (reached == 0) {
+        fprintf(stderr, "入口から出口へ到達できませんでした\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
+
     print();
 
     ok = (fflush(stdout) == 0 && !ferror(stdout));
@@ -190,7 +265,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "迷路の書き出しに失敗しました\n");
     }
 
-    free(stack);
+    free(parent_dir);
+    free(queue);
     free(map);
     return ok ? 0 : 1;
 }
