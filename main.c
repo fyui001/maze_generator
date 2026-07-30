@@ -112,7 +112,7 @@ int solve_maze(int *queue, unsigned char *parent_dir)
     memset(parent_dir, 0xFF, (size_t)height * (size_t)width * sizeof(*parent_dir));
 
     queue[tail++] = 0 * width + 1;
-    parent_dir[0 * width + 1] = 4;   /* START: 親を持たない根 */
+    parent_dir[0 * width + 1] = 4;
 
     while (head < tail) {
         int idx = queue[head++];
