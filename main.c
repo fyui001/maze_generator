@@ -9,7 +9,7 @@
 
 int height = 11;
 int width = 21;
-int *map = NULL;
+unsigned char *map = NULL;
 
 struct {
     int y, x;
@@ -42,30 +42,50 @@ int gen_rand_odd(int dim)
     return 1 + 2 * (rand() % ((dim - 1) / 2));
 }
 
-void make_maze(int y, int x)
+typedef struct {
+    int y;
+    int x;
+    unsigned char d;
+    unsigned char ds;
+} Frame;
+
+/*
+* stack は ((height - 1) / 2) * ((width - 1) / 2) 要素以上を要求する（確保は呼び出し側の責務）
+* 親の d を進めずに子を push することが、子から戻って同じ方向を再評価する再帰版の再現になる
+*/
+void make_maze(int y, int x, Frame *stack)
 {
-    int d = rand() % 4;
-    int ds = d;
+    size_t len = 0;
 
-    /* 掘り進める方向を決める */
-    while(1) {
-        /* 2つ先の座標を記憶する */
-        int py = y + dir[d].y * 2;
-        int px = x + dir[d].x * 2;
+    stack[len].y = y;
+    stack[len].x = x;
+    stack[len].d = (unsigned char)(rand() % 4);
+    stack[len].ds = stack[len].d;
+    len++;
 
-        if ( px < 0 || px >= width || py < 0 || py >= height || AT(py, px) != WALL ) {
-            d++;
-            if (d == 4) {
-                d = 0;
+    while (len > 0) {
+        Frame *top = &stack[len - 1];
+        int py = top->y + dir[top->d].y * 2;
+        int px = top->x + dir[top->d].x * 2;
+
+        if (px < 0 || px >= width || py < 0 || py >= height || AT(py, px) != WALL) {
+            top->d++;
+            if (top->d == 4) {
+                top->d = 0;
             }
-            if (d == ds) {
-                return;
+            if (top->d == top->ds) {
+                len--;
             }
             continue;
         }
-        AT(y + dir[d].y, x + dir[d].x) = ROAD;
+        AT(top->y + dir[top->d].y, top->x + dir[top->d].x) = ROAD;
         AT(py, px) = ROAD;
-        make_maze(py, px);
+
+        stack[len].y = py;
+        stack[len].x = px;
+        stack[len].d = (unsigned char)(rand() % 4);
+        stack[len].ds = stack[len].d;
+        len++;
     }
 }
 
@@ -93,7 +113,7 @@ void print(void)
 }
 
 /*
-* 寸法文字列をパースする。3〜711 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
+* 寸法文字列をパースする。3〜8191 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
 */
 static int parse_dim(const char *s, int *out)
 {
@@ -106,8 +126,8 @@ static int parse_dim(const char *s, int *out)
         fprintf(stderr, "寸法が整数ではありません: %s\n", s);
         return 1;
     }
-    if (v < 3 || v > 711 || v % 2 != 1) {
-        fprintf(stderr, "寸法は 3〜711 の奇数で指定してください: %s\n", s);
+    if (v < 3 || v > 8191 || v % 2 != 1) {
+        fprintf(stderr, "寸法は 3〜8191 の奇数で指定してください: %s\n", s);
         return 1;
     }
     *out = (int)v;
@@ -117,7 +137,9 @@ static int parse_dim(const char *s, int *out)
 int main(int argc, char *argv[])
 {
     struct timespec ts;
+    Frame *stack;
     int x, y;
+    int ok;
 
     if (argc >= 4) {
         fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH]\n", argv[0]);
@@ -141,9 +163,17 @@ int main(int argc, char *argv[])
     }
     srand((unsigned int)ts.tv_sec ^ (unsigned int)ts.tv_nsec);
 
-    map = malloc((size_t)height * (size_t)width * sizeof(int));
+    map = malloc((size_t)height * (size_t)width * sizeof(*map));
     if (map == NULL) {
         fprintf(stderr, "迷路用メモリの確保に失敗しました\n");
+        return 1;
+    }
+
+    /* 開始セルを含め各論理セルは高々 1 回しか push されないため、push 総数は論理セル総数を超えない */
+    stack = malloc((size_t)((height - 1) / 2) * (size_t)((width - 1) / 2) * sizeof(*stack));
+    if (stack == NULL) {
+        fprintf(stderr, "穴掘り用スタックの確保に失敗しました\n");
+        free(map);
         return 1;
     }
 
@@ -151,9 +181,16 @@ int main(int argc, char *argv[])
     y = gen_rand_odd(height);
     maze_init();
     AT(y, x) = ROAD;
-    make_maze(y, x);
+    make_maze(y, x, stack);
     open_entrance_exit();
     print();
+
+    ok = (fflush(stdout) == 0 && !ferror(stdout));
+    if (!ok) {
+        fprintf(stderr, "迷路の書き出しに失敗しました\n");
+    }
+
+    free(stack);
     free(map);
-    return 0;
+    return ok ? 0 : 1;
 }
