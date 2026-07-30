@@ -139,6 +139,7 @@ int main(int argc, char *argv[])
     struct timespec ts;
     Frame *stack;
     int x, y;
+    int ok;
 
     if (argc >= 4) {
         fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH]\n", argv[0]);
@@ -183,7 +184,13 @@ int main(int argc, char *argv[])
     make_maze(y, x, stack);
     open_entrance_exit();
     print();
+
+    ok = (fflush(stdout) == 0 && !ferror(stdout));
+    if (!ok) {
+        fprintf(stderr, "迷路の書き出しに失敗しました\n");
+    }
+
     free(stack);
     free(map);
-    return 0;
+    return ok ? 0 : 1;
 }
