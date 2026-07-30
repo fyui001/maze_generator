@@ -104,7 +104,7 @@ void open_entrance_exit(void)
 * queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
 * parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
 */
-int solve_maze(int *queue, unsigned char *parent_dir)
+int solve(int *queue, unsigned char *parent_dir)
 {
     int goal_y = height - 1, goal_x = width - 2;
     size_t head = 0, tail = 0;
@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
         free(map);
         return 1;
     }
-    reached = solve_maze(queue, parent_dir);
+    reached = solve(queue, parent_dir);
     if (reached == 0) {
         fprintf(stderr, "入口から出口へ到達できませんでした\n");
         free(parent_dir);
