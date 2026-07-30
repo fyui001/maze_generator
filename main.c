@@ -159,6 +159,14 @@ void print(void)
 }
 
 /*
+* 2 時点間の経過時間をミリ秒で返す
+*/
+double elapsed_ms(const struct timespec *start, const struct timespec *end)
+{
+    return (double)(end->tv_sec - start->tv_sec) * 1000.0 + (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
+}
+
+/*
 * 寸法文字列をパースする。3〜8191 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
 */
 static int parse_dim(const char *s, int *out)
@@ -183,11 +191,15 @@ static int parse_dim(const char *s, int *out)
 int main(int argc, char *argv[])
 {
     struct timespec ts;
+    struct timespec t0, t1;
     Frame *stack;
     int *queue;
     unsigned char *parent_dir;
     int x, y;
+    int cur;
     int reached;
+    long path_len;
+    double gen_ms, solve_ms;
     int ok;
 
     if (argc >= 4) {
@@ -226,6 +238,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (timespec_get(&t0, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(stack);
+        free(map);
+        return 1;
+    }
     x = gen_rand_odd(width);
     y = gen_rand_odd(height);
     maze_init();
@@ -234,6 +252,12 @@ int main(int argc, char *argv[])
     /* stack はここが最後の参照。求解用メモリを確保する前に返す */
     free(stack);
     open_entrance_exit();
+    if (timespec_get(&t1, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(map);
+        return 1;
+    }
+    gen_ms = elapsed_ms(&t0, &t1);
 
     queue = malloc((size_t)height * (size_t)width * sizeof(*queue));
     if (queue == NULL) {
@@ -249,6 +273,13 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (timespec_get(&t0, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
     reached = solve_maze(queue, parent_dir);
     if (reached == 0) {
         fprintf(stderr, "入口から出口へ到達できませんでした\n");
@@ -257,6 +288,22 @@ int main(int argc, char *argv[])
         free(map);
         return 1;
     }
+    path_len = 1;
+    cur = (height - 1) * width + (width - 2);
+    while (parent_dir[cur] != 4) {
+        cur -= dir[parent_dir[cur]].y * width + dir[parent_dir[cur]].x;
+        path_len++;
+    }
+    if (timespec_get(&t1, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
+    solve_ms = elapsed_ms(&t0, &t1);
+
+    fprintf(stderr, "生成: %.3fms / 求解: %.3fms / 経路: %ld マス\n", gen_ms, solve_ms, path_len);
 
     print();
 
