@@ -50,8 +50,8 @@ typedef struct {
 } Frame;
 
 /*
-* 掘った先を最上段に積んだまま親の d に触れないことで、再帰版が子から戻って同じ方向を
-* 再評価する挙動を LIFO でそのまま再現する
+* stack は ((height - 1) / 2) * ((width - 1) / 2) 要素以上を要求する（確保は呼び出し側の責務）
+* 親の d を進めずに子を push することが、子から戻って同じ方向を再評価する再帰版の再現になる
 */
 void make_maze(int y, int x, Frame *stack)
 {
@@ -63,10 +63,8 @@ void make_maze(int y, int x, Frame *stack)
     stack[len].ds = stack[len].d;
     len++;
 
-    /* 掘り進める方向を決める */
     while (len > 0) {
         Frame *top = &stack[len - 1];
-        /* 2つ先の座標を記憶する */
         int py = top->y + dir[top->d].y * 2;
         int px = top->x + dir[top->d].x * 2;
 
@@ -170,7 +168,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* 各 push は WALL だった論理セルを 1 つ ROAD 化するため、push 総数は論理セル総数を超えない */
+    /* 開始セルを含め各論理セルは高々 1 回しか push されないため、push 総数は論理セル総数を超えない */
     stack = malloc((size_t)((height - 1) / 2) * (size_t)((width - 1) / 2) * sizeof(*stack));
     if (stack == NULL) {
         fprintf(stderr, "穴掘り用スタックの確保に失敗しました\n");
