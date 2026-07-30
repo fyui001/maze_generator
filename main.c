@@ -9,7 +9,7 @@
 
 int height = 11;
 int width = 21;
-int *map = NULL;
+unsigned char *map = NULL;
 
 struct {
     int y, x;
@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
     }
     srand((unsigned int)ts.tv_sec ^ (unsigned int)ts.tv_nsec);
 
-    map = malloc((size_t)height * (size_t)width * sizeof(int));
+    map = malloc((size_t)height * (size_t)width * sizeof(*map));
     if (map == NULL) {
         fprintf(stderr, "迷路用メモリの確保に失敗しました\n");
         return 1;
