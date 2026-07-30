@@ -42,30 +42,52 @@ int gen_rand_odd(int dim)
     return 1 + 2 * (rand() % ((dim - 1) / 2));
 }
 
-void make_maze(int y, int x)
+typedef struct {
+    int y;
+    int x;
+    unsigned char d;
+    unsigned char ds;
+} Frame;
+
+/*
+* 掘った先を最上段に積んだまま親の d に触れないことで、再帰版が子から戻って同じ方向を
+* 再評価する挙動を LIFO でそのまま再現する
+*/
+void make_maze(int y, int x, Frame *stack)
 {
-    int d = rand() % 4;
-    int ds = d;
+    size_t len = 0;
+
+    stack[len].y = y;
+    stack[len].x = x;
+    stack[len].d = (unsigned char)(rand() % 4);
+    stack[len].ds = stack[len].d;
+    len++;
 
     /* 掘り進める方向を決める */
-    while(1) {
+    while (len > 0) {
+        Frame *top = &stack[len - 1];
         /* 2つ先の座標を記憶する */
-        int py = y + dir[d].y * 2;
-        int px = x + dir[d].x * 2;
+        int py = top->y + dir[top->d].y * 2;
+        int px = top->x + dir[top->d].x * 2;
 
-        if ( px < 0 || px >= width || py < 0 || py >= height || AT(py, px) != WALL ) {
-            d++;
-            if (d == 4) {
-                d = 0;
+        if (px < 0 || px >= width || py < 0 || py >= height || AT(py, px) != WALL) {
+            top->d++;
+            if (top->d == 4) {
+                top->d = 0;
             }
-            if (d == ds) {
-                return;
+            if (top->d == top->ds) {
+                len--;
             }
             continue;
         }
-        AT(y + dir[d].y, x + dir[d].x) = ROAD;
+        AT(top->y + dir[top->d].y, top->x + dir[top->d].x) = ROAD;
         AT(py, px) = ROAD;
-        make_maze(py, px);
+
+        stack[len].y = py;
+        stack[len].x = px;
+        stack[len].d = (unsigned char)(rand() % 4);
+        stack[len].ds = stack[len].d;
+        len++;
     }
 }
 
@@ -117,6 +139,7 @@ static int parse_dim(const char *s, int *out)
 int main(int argc, char *argv[])
 {
     struct timespec ts;
+    Frame *stack;
     int x, y;
 
     if (argc >= 4) {
@@ -147,13 +170,22 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    /* 各 push は WALL だった論理セルを 1 つ ROAD 化するため、push 総数は論理セル総数を超えない */
+    stack = malloc((size_t)((height - 1) / 2) * (size_t)((width - 1) / 2) * sizeof(*stack));
+    if (stack == NULL) {
+        fprintf(stderr, "穴掘り用スタックの確保に失敗しました\n");
+        free(map);
+        return 1;
+    }
+
     x = gen_rand_odd(width);
     y = gen_rand_odd(height);
     maze_init();
     AT(y, x) = ROAD;
-    make_maze(y, x);
+    make_maze(y, x, stack);
     open_entrance_exit();
     print();
+    free(stack);
     free(map);
     return 0;
 }
