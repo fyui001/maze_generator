@@ -104,7 +104,7 @@ void open_entrance_exit(void)
 * queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
 * parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
 */
-int solve(int *queue, unsigned char *parent_dir)
+int solve_maze(int *queue, unsigned char *parent_dir)
 {
     int goal_y = height - 1, goal_x = width - 2;
     size_t head = 0, tail = 0;
@@ -158,9 +158,6 @@ void print(void)
     }
 }
 
-/*
-* 2 時点間の経過時間をミリ秒で返す
-*/
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
 {
     return (double)(end->tv_sec - start->tv_sec) * 1000.0 + (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
@@ -249,15 +246,16 @@ int main(int argc, char *argv[])
     maze_init();
     AT(y, x) = ROAD;
     make_maze(y, x, stack);
-    /* stack はここが最後の参照。求解用メモリを確保する前に返す */
-    free(stack);
     open_entrance_exit();
     if (timespec_get(&t1, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
+        free(stack);
         free(map);
         return 1;
     }
     gen_ms = elapsed_ms(&t0, &t1);
+    /* stack はここが最後の参照。求解用メモリを確保する前に返す */
+    free(stack);
 
     queue = malloc((size_t)height * (size_t)width * sizeof(*queue));
     if (queue == NULL) {
@@ -280,7 +278,7 @@ int main(int argc, char *argv[])
         free(map);
         return 1;
     }
-    reached = solve(queue, parent_dir);
+    reached = solve_maze(queue, parent_dir);
     if (reached == 0) {
         fprintf(stderr, "入口から出口へ到達できませんでした\n");
         free(parent_dir);
