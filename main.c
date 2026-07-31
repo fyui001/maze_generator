@@ -91,12 +91,28 @@ void make_maze(int y, int x, Frame *stack)
 }
 
 /*
+* 入口（上端の x=1）の map 添字。y=0 なので添字は x と一致する
+*/
+int entrance_index(void)
+{
+    return 1;
+}
+
+/*
+* 出口（下端の x=width-2）の map 添字
+*/
+int exit_index(void)
+{
+    return (height - 1) * width + (width - 2);
+}
+
+/*
 * 入口と出口を開ける
 */
 void open_entrance_exit(void)
 {
-    AT(0, 1) = ROAD;
-    AT(height - 1, width - 2) = ROAD;
+    map[entrance_index()] = ROAD;
+    map[exit_index()] = ROAD;
 }
 
 /*
@@ -104,15 +120,14 @@ void open_entrance_exit(void)
 * queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
 * parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
 */
-int solve_maze(int *queue, unsigned char *parent_dir)
+int solve(int *queue, unsigned char *parent_dir)
 {
-    int goal_y = height - 1, goal_x = width - 2;
     size_t head = 0, tail = 0;
 
     memset(parent_dir, 0xFF, (size_t)height * (size_t)width * sizeof(*parent_dir));
 
-    queue[tail++] = 0 * width + 1;
-    parent_dir[0 * width + 1] = 4;
+    queue[tail++] = entrance_index();
+    parent_dir[entrance_index()] = 4;
 
     while (head < tail) {
         int idx = queue[head++];
@@ -120,7 +135,7 @@ int solve_maze(int *queue, unsigned char *parent_dir)
         int x = idx % width;
         int d;
 
-        if (y == goal_y && x == goal_x) {
+        if (idx == exit_index()) {
             return 1;
         }
 
@@ -278,7 +293,7 @@ int main(int argc, char *argv[])
         free(map);
         return 1;
     }
-    reached = solve_maze(queue, parent_dir);
+    reached = solve(queue, parent_dir);
     if (reached == 0) {
         fprintf(stderr, "入口から出口へ到達できませんでした\n");
         free(parent_dir);
@@ -287,7 +302,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     path_len = 1;
-    cur = (height - 1) * width + (width - 2);
+    cur = exit_index();
     while (parent_dir[cur] != 4) {
         cur -= dir[parent_dir[cur]].y * width + dir[parent_dir[cur]].x;
         path_len++;
