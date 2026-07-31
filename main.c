@@ -231,56 +231,54 @@ int main(int argc, char *argv[])
 {
     struct timespec ts;
     struct timespec t0, t1;
-    Frame *stack;
-    int *queue;
-    unsigned char *parent_dir;
+    Frame *stack = NULL;
+    int *queue = NULL;
+    unsigned char *parent_dir = NULL;
     int x, y;
     int reached;
     long path_len;
     double gen_ms, solve_ms;
-    int ok;
+    /* 既定は失敗。成功経路を最後まで通ったときだけ 0 に落とす */
+    int status = 1;
 
     if (argc >= 4) {
         fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH]\n", argv[0]);
-        return 1;
+        goto cleanup;
     }
     if (argc == 2) {
         if (parse_dim(argv[1], &height) != 0) {
-            return 1;
+            goto cleanup;
         }
         width = height;
     } else if (argc == 3) {
         if (parse_dim(argv[1], &height) != 0 || parse_dim(argv[2], &width) != 0) {
-            return 1;
+            goto cleanup;
         }
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
     if (timespec_get(&ts, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
-        return 1;
+        goto cleanup;
     }
     srand((unsigned int)ts.tv_sec ^ (unsigned int)ts.tv_nsec);
 
     map = malloc((size_t)height * (size_t)width * sizeof(*map));
     if (map == NULL) {
         fprintf(stderr, "迷路用メモリの確保に失敗しました\n");
-        return 1;
+        goto cleanup;
     }
 
     /* 開始セルを含め各論理セルは高々 1 回しか push されないため、push 総数は論理セル総数を超えない */
     stack = malloc((size_t)((height - 1) / 2) * (size_t)((width - 1) / 2) * sizeof(*stack));
     if (stack == NULL) {
         fprintf(stderr, "穴掘り用スタックの確保に失敗しました\n");
-        free(map);
-        return 1;
+        goto cleanup;
     }
 
     if (timespec_get(&t0, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
-        free(stack);
-        free(map);
-        return 1;
+        goto cleanup;
     }
     x = gen_rand_odd(width);
     y = gen_rand_odd(height);
@@ -290,50 +288,37 @@ int main(int argc, char *argv[])
     open_entrance_exit();
     if (timespec_get(&t1, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
-        free(stack);
-        free(map);
-        return 1;
+        goto cleanup;
     }
     gen_ms = elapsed_ms(&t0, &t1);
     /* stack はここが最後の参照。求解用メモリを確保する前に返す */
     free(stack);
+    stack = NULL;
 
     queue = malloc((size_t)height * (size_t)width * sizeof(*queue));
     if (queue == NULL) {
         fprintf(stderr, "経路探索用キューの確保に失敗しました\n");
-        free(map);
-        return 1;
+        goto cleanup;
     }
     parent_dir = malloc((size_t)height * (size_t)width * sizeof(*parent_dir));
     if (parent_dir == NULL) {
         fprintf(stderr, "経路復元用メモリの確保に失敗しました\n");
-        free(queue);
-        free(map);
-        return 1;
+        goto cleanup;
     }
 
     if (timespec_get(&t0, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
-        free(parent_dir);
-        free(queue);
-        free(map);
-        return 1;
+        goto cleanup;
     }
     reached = solve(queue, parent_dir);
     if (reached == 0) {
         fprintf(stderr, "入口から出口へ到達できませんでした\n");
-        free(parent_dir);
-        free(queue);
-        free(map);
-        return 1;
+        goto cleanup;
     }
     path_len = path_length(parent_dir, 0);
     if (timespec_get(&t1, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
-        free(parent_dir);
-        free(queue);
-        free(map);
-        return 1;
+        goto cleanup;
     }
     solve_ms = elapsed_ms(&t0, &t1);
 
@@ -341,13 +326,17 @@ int main(int argc, char *argv[])
 
     print();
 
-    ok = (fflush(stdout) == 0 && !ferror(stdout));
-    if (!ok) {
+    if (fflush(stdout) != 0 || ferror(stdout)) {
         fprintf(stderr, "迷路の書き出しに失敗しました\n");
+        goto cleanup;
     }
 
+    status = 0;
+
+cleanup:
     free(parent_dir);
     free(queue);
+    free(stack);
     free(map);
-    return ok ? 0 : 1;
+    return status;
 }
