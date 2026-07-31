@@ -364,6 +364,19 @@ int write_bmp_4bit(const char *path)
     return 0;
 }
 
+/*
+* 迷路画像と解答画像を書き出す
+* 経路を塗るのは 1 枚目を書いた後。先に塗ると 1bit の 2 値表現が壊れる
+*/
+int write_maze_images(const char *plain_path, const char *solved_path, const unsigned char *parent_dir)
+{
+    if (write_bmp_1bit(plain_path) != 0) {
+        return 1;
+    }
+    path_length(parent_dir, 1);
+    return write_bmp_4bit(solved_path);
+}
+
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
 {
     return (double)(end->tv_sec - start->tv_sec) * 1000.0 + (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
@@ -391,6 +404,35 @@ static int parse_dim(const char *s, int *out)
     return 0;
 }
 
+/*
+* 末尾が .bmp（大小問わず）かどうか
+*/
+int has_bmp_suffix(const char *s, size_t len)
+{
+    return len >= 4 && s[len - 4] == '.'
+        && (s[len - 3] == 'b' || s[len - 3] == 'B')
+        && (s[len - 2] == 'm' || s[len - 2] == 'M')
+        && (s[len - 1] == 'p' || s[len - 1] == 'P');
+}
+
+/*
+* .bmp を剥がした後の basename が空 / . / .. でないことを確かめる
+* 許すと ..bmp のような隠しファイルが黙って作られ、成功したのに画像が見つからなくなる
+*/
+int is_valid_base(const char *s, size_t len)
+{
+    size_t i = len;
+
+    while (i > 0 && s[i - 1] != '/') {
+        i--;
+    }
+    s += i;
+    len -= i;
+    return !(len == 0
+        || (len == 1 && s[0] == '.')
+        || (len == 2 && s[0] == '.' && s[1] == '.'));
+}
+
 int main(int argc, char *argv[])
 {
     struct timespec ts;
@@ -398,26 +440,75 @@ int main(int argc, char *argv[])
     Frame *stack = NULL;
     int *queue = NULL;
     unsigned char *parent_dir = NULL;
-    int x, y;
+    char *plain_path = NULL;
+    char *solved_path = NULL;
+    const char *image_base = NULL;
+    const char *dims[2];
+    int ndim = 0;
+    int i, x, y;
     int reached;
     long path_len;
     double gen_ms, solve_ms;
     /* 既定は失敗。成功経路を最後まで通ったときだけ 0 に落とす */
     int status = 1;
 
-    if (argc >= 4) {
-        fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH]\n", argv[0]);
-        goto cleanup;
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--image") == 0) {
+            if (image_base != NULL) {
+                fprintf(stderr, "--image は 1 回だけ指定できます\n");
+                goto cleanup;
+            }
+            if (i + 1 >= argc) {
+                fprintf(stderr, "--image には出力ファイル名の基底が必要です\n");
+                goto cleanup;
+            }
+            image_base = argv[++i];
+            continue;
+        }
+        /* '-' の次が数字なら寸法として扱う。負の寸法が不明なオプションに化けるのを防ぐ */
+        if (argv[i][0] == '-' && (argv[i][1] < '0' || argv[i][1] > '9')) {
+            fprintf(stderr, "不明なオプション: %s\n", argv[i]);
+            goto cleanup;
+        }
+        if (ndim == 2) {
+            fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH] [--image BASE]\n", argv[0]);
+            goto cleanup;
+        }
+        dims[ndim++] = argv[i];
     }
-    if (argc == 2) {
-        if (parse_dim(argv[1], &height) != 0) {
+
+    if (ndim == 1) {
+        if (parse_dim(dims[0], &height) != 0) {
             goto cleanup;
         }
         width = height;
-    } else if (argc == 3) {
-        if (parse_dim(argv[1], &height) != 0 || parse_dim(argv[2], &width) != 0) {
+    } else if (ndim == 2) {
+        if (parse_dim(dims[0], &height) != 0 || parse_dim(dims[1], &width) != 0) {
             goto cleanup;
         }
+    }
+
+    if (image_base != NULL) {
+        size_t blen = strlen(image_base);
+
+        if (has_bmp_suffix(image_base, blen)) {
+            blen -= 4;
+        }
+        if (!is_valid_base(image_base, blen)) {
+            fprintf(stderr, "画像の出力名が不正です: %s\n", image_base);
+            goto cleanup;
+        }
+        /* "-solved.bmp" は ".bmp" より長いので、この式ひとつで両方の名前を賄える */
+        plain_path = malloc(blen + sizeof("-solved.bmp"));
+        solved_path = malloc(blen + sizeof("-solved.bmp"));
+        if (plain_path == NULL || solved_path == NULL) {
+            fprintf(stderr, "画像ファイル名の確保に失敗しました\n");
+            goto cleanup;
+        }
+        memcpy(plain_path, image_base, blen);
+        memcpy(plain_path + blen, ".bmp", sizeof(".bmp"));
+        memcpy(solved_path, image_base, blen);
+        memcpy(solved_path + blen, "-solved.bmp", sizeof("-solved.bmp"));
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
@@ -488,16 +579,23 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "生成: %.3fms / 求解: %.3fms / 経路: %ld マス\n", gen_ms, solve_ms, path_len);
 
-    print();
-
-    if (fflush(stdout) != 0 || ferror(stdout)) {
-        fprintf(stderr, "迷路の書き出しに失敗しました\n");
-        goto cleanup;
+    if (image_base != NULL) {
+        if (write_maze_images(plain_path, solved_path, parent_dir) != 0) {
+            goto cleanup;
+        }
+    } else {
+        print();
+        if (fflush(stdout) != 0 || ferror(stdout)) {
+            fprintf(stderr, "迷路の書き出しに失敗しました\n");
+            goto cleanup;
+        }
     }
 
     status = 0;
 
 cleanup:
+    free(solved_path);
+    free(plain_path);
     free(parent_dir);
     free(queue);
     free(stack);
