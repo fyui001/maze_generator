@@ -273,11 +273,11 @@ int write_bmp_1bit(const char *path)
     long row_bytes = bmp_row_bytes(1);
     unsigned char *row;
     FILE *fp;
-    int file_row, x, failed;
+    int file_row, x, failed, saved_errno;
 
     row = malloc((size_t)row_bytes);
     if (row == NULL) {
-        fprintf(stderr, "画像行バッファの確保に失敗しました\n");
+        fprintf(stderr, "画像用行バッファの確保に失敗しました\n");
         return 1;
     }
     fp = fopen(path, "wb");
@@ -301,15 +301,18 @@ int write_bmp_1bit(const char *path)
             break;
         }
     }
-    free(row);
 
     /* 小さい画像は stdio のバッファに収まるため fclose の flush でしか失敗が分からない */
     failed = (file_row < height) || ferror(fp);
+    /* free など後続の libc 呼び出しに上書きされる前に失敗理由を退避する */
+    saved_errno = errno;
+    free(row);
     if (fclose(fp) != 0) {
+        saved_errno = errno;
         failed = 1;
     }
     if (failed) {
-        fprintf(stderr, "画像の書き出しに失敗しました: %s\n", path);
+        fprintf(stderr, "画像の書き出しに失敗しました: %s: %s\n", path, strerror(saved_errno));
         remove(path);
         return 1;
     }
@@ -324,11 +327,11 @@ int write_bmp_4bit(const char *path)
     long row_bytes = bmp_row_bytes(4);
     unsigned char *row;
     FILE *fp;
-    int file_row, x, failed;
+    int file_row, x, failed, saved_errno;
 
     row = malloc((size_t)row_bytes);
     if (row == NULL) {
-        fprintf(stderr, "画像行バッファの確保に失敗しました\n");
+        fprintf(stderr, "画像用行バッファの確保に失敗しました\n");
         return 1;
     }
     fp = fopen(path, "wb");
@@ -350,14 +353,16 @@ int write_bmp_4bit(const char *path)
             break;
         }
     }
-    free(row);
 
     failed = (file_row < height) || ferror(fp);
+    saved_errno = errno;
+    free(row);
     if (fclose(fp) != 0) {
+        saved_errno = errno;
         failed = 1;
     }
     if (failed) {
-        fprintf(stderr, "画像の書き出しに失敗しました: %s\n", path);
+        fprintf(stderr, "画像の書き出しに失敗しました: %s: %s\n", path, strerror(saved_errno));
         remove(path);
         return 1;
     }
@@ -502,7 +507,7 @@ int main(int argc, char *argv[])
         plain_path = malloc(blen + sizeof("-solved.bmp"));
         solved_path = malloc(blen + sizeof("-solved.bmp"));
         if (plain_path == NULL || solved_path == NULL) {
-            fprintf(stderr, "画像ファイル名の確保に失敗しました\n");
+            fprintf(stderr, "画像用ファイル名の確保に失敗しました\n");
             goto cleanup;
         }
         memcpy(plain_path, image_base, blen);
