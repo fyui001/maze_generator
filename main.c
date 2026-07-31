@@ -200,6 +200,170 @@ void print(void)
     }
 }
 
+/*
+* 多バイト値をリトルエンディアンで 1 バイトずつ書く
+* 構造体パディングとホストエンディアンへの依存を避けるため struct の fwrite は使わない
+*/
+void write_le(FILE *fp, unsigned long v, int n)
+{
+    int i;
+    for (i = 0; i < n; i++) {
+        fputc((int)((v >> (8 * i)) & 0xFFUL), fp);
+    }
+}
+
+/*
+* BMP の 1 行のバイト数。行は 4 バイト境界に切り上げる
+* 上限を引き上げたときに静かに溢れないよう long で計算する
+*/
+long bmp_row_bytes(int bitcount)
+{
+    return ((long)bitcount * width + 31L) / 32L * 4L;
+}
+
+/* 添字が map の値と一致するので変換がいらない。要素は RGBQUAD の {B, G, R} */
+static const unsigned char bmp_palette[3][3] = {
+    {0xFF, 0xFF, 0xFF}, /* ROAD = 白 */
+    {0x00, 0x00, 0x00}, /* WALL = 黒 */
+    {0x00, 0x00, 0xFF} /* PATH = 赤 */
+};
+
+/*
+* BITMAPFILEHEADER + BITMAPINFOHEADER + パレットを書く
+* biHeight は正値。したがってピクセルデータはボトムアップになる
+*/
+void write_bmp_header(FILE *fp, int bitcount, int colors)
+{
+    long image_size = bmp_row_bytes(bitcount) * height;
+    long off_bits = 14L + 40L + 4L * colors;
+    int i;
+
+    fputc('B', fp);
+    fputc('M', fp);
+    write_le(fp, (unsigned long)(off_bits + image_size), 4);
+    write_le(fp, 0, 2);
+    write_le(fp, 0, 2);
+    write_le(fp, (unsigned long)off_bits, 4);
+    write_le(fp, 40, 4);
+    write_le(fp, (unsigned long)width, 4);
+    write_le(fp, (unsigned long)height, 4);
+    write_le(fp, 1, 2);
+    write_le(fp, (unsigned long)bitcount, 2);
+    write_le(fp, 0, 4);
+    write_le(fp, (unsigned long)image_size, 4);
+    write_le(fp, 0, 4);
+    write_le(fp, 0, 4);
+    write_le(fp, (unsigned long)colors, 4);
+    write_le(fp, 0, 4);
+
+    for (i = 0; i < colors; i++) {
+        write_le(fp, bmp_palette[i][0], 1);
+        write_le(fp, bmp_palette[i][1], 1);
+        write_le(fp, bmp_palette[i][2], 1);
+        write_le(fp, 0, 1);
+    }
+}
+
+/*
+* 迷路を 1bit 白黒 2 色の BMP に書き出す。行バッファ 1 本だけを使い回す
+* 道以外を黒とするので、経路を塗った後に呼ぶ順序ミスが壁色の線として見える
+*/
+int write_bmp_1bit(const char *path)
+{
+    long row_bytes = bmp_row_bytes(1);
+    unsigned char *row;
+    FILE *fp;
+    int file_row, x, failed;
+
+    row = malloc((size_t)row_bytes);
+    if (row == NULL) {
+        fprintf(stderr, "画像行バッファの確保に失敗しました\n");
+        return 1;
+    }
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        fprintf(stderr, "画像ファイルのオープンに失敗しました: %s: %s\n", path, strerror(errno));
+        free(row);
+        return 1;
+    }
+
+    write_bmp_header(fp, 1, 2);
+    for (file_row = 0; file_row < height; file_row++) {
+        int y = height - 1 - file_row;
+        /* 余りビットと行パディングを 0 のまま残す */
+        memset(row, 0, (size_t)row_bytes);
+        for (x = 0; x < width; x++) {
+            if (AT(y, x) != ROAD) {
+                row[x / 8] |= (unsigned char)(0x80u >> (x % 8));
+            }
+        }
+        if (fwrite(row, 1, (size_t)row_bytes, fp) != (size_t)row_bytes) {
+            break;
+        }
+    }
+    free(row);
+
+    /* 小さい画像は stdio のバッファに収まるため fclose の flush でしか失敗が分からない */
+    failed = (file_row < height) || ferror(fp);
+    if (fclose(fp) != 0) {
+        failed = 1;
+    }
+    if (failed) {
+        fprintf(stderr, "画像の書き出しに失敗しました: %s\n", path);
+        remove(path);
+        return 1;
+    }
+    return 0;
+}
+
+/*
+* 迷路を 4bit パレット 3 色の BMP に書き出す。上位ニブルが左のピクセル
+*/
+int write_bmp_4bit(const char *path)
+{
+    long row_bytes = bmp_row_bytes(4);
+    unsigned char *row;
+    FILE *fp;
+    int file_row, x, failed;
+
+    row = malloc((size_t)row_bytes);
+    if (row == NULL) {
+        fprintf(stderr, "画像行バッファの確保に失敗しました\n");
+        return 1;
+    }
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        fprintf(stderr, "画像ファイルのオープンに失敗しました: %s: %s\n", path, strerror(errno));
+        free(row);
+        return 1;
+    }
+
+    write_bmp_header(fp, 4, 3);
+    for (file_row = 0; file_row < height; file_row++) {
+        int y = height - 1 - file_row;
+        memset(row, 0, (size_t)row_bytes);
+        for (x = 0; x < width; x++) {
+            unsigned char v = AT(y, x);
+            row[x / 2] |= (unsigned char)((x % 2 == 0) ? (v << 4) : v);
+        }
+        if (fwrite(row, 1, (size_t)row_bytes, fp) != (size_t)row_bytes) {
+            break;
+        }
+    }
+    free(row);
+
+    failed = (file_row < height) || ferror(fp);
+    if (fclose(fp) != 0) {
+        failed = 1;
+    }
+    if (failed) {
+        fprintf(stderr, "画像の書き出しに失敗しました: %s\n", path);
+        remove(path);
+        return 1;
+    }
+    return 0;
+}
+
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
 {
     return (double)(end->tv_sec - start->tv_sec) * 1000.0 + (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
