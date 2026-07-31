@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define ROAD 0
@@ -99,6 +100,51 @@ void open_entrance_exit(void)
 }
 
 /*
+* 入口から出口までを BFS で探索し、到達できたら 1 を返す
+* queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
+* parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
+*/
+int solve_maze(int *queue, unsigned char *parent_dir)
+{
+    int goal_y = height - 1, goal_x = width - 2;
+    size_t head = 0, tail = 0;
+
+    memset(parent_dir, 0xFF, (size_t)height * (size_t)width * sizeof(*parent_dir));
+
+    queue[tail++] = 0 * width + 1;
+    parent_dir[0 * width + 1] = 4;
+
+    while (head < tail) {
+        int idx = queue[head++];
+        int y = idx / width;
+        int x = idx % width;
+        int d;
+
+        if (y == goal_y && x == goal_x) {
+            return 1;
+        }
+
+        for (d = 0; d < 4; d++) {
+            int ny = y + dir[d].y;
+            int nx = x + dir[d].x;
+            int nidx;
+
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height || AT(ny, nx) != ROAD) {
+                continue;
+            }
+            nidx = ny * width + nx;
+            if (parent_dir[nidx] != 0xFF) {
+                continue;
+            }
+            parent_dir[nidx] = (unsigned char)d;
+            queue[tail++] = nidx;
+        }
+    }
+
+    return 0;
+}
+
+/*
 * 迷路の書き出し
 */
 void print(void)
@@ -110,6 +156,11 @@ void print(void)
         }
         fputc('\n', stdout);
     }
+}
+
+double elapsed_ms(const struct timespec *start, const struct timespec *end)
+{
+    return (double)(end->tv_sec - start->tv_sec) * 1000.0 + (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
 }
 
 /*
@@ -137,8 +188,15 @@ static int parse_dim(const char *s, int *out)
 int main(int argc, char *argv[])
 {
     struct timespec ts;
+    struct timespec t0, t1;
     Frame *stack;
+    int *queue;
+    unsigned char *parent_dir;
     int x, y;
+    int cur;
+    int reached;
+    long path_len;
+    double gen_ms, solve_ms;
     int ok;
 
     if (argc >= 4) {
@@ -177,12 +235,74 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    if (timespec_get(&t0, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(stack);
+        free(map);
+        return 1;
+    }
     x = gen_rand_odd(width);
     y = gen_rand_odd(height);
     maze_init();
     AT(y, x) = ROAD;
     make_maze(y, x, stack);
     open_entrance_exit();
+    if (timespec_get(&t1, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(stack);
+        free(map);
+        return 1;
+    }
+    gen_ms = elapsed_ms(&t0, &t1);
+    /* stack はここが最後の参照。求解用メモリを確保する前に返す */
+    free(stack);
+
+    queue = malloc((size_t)height * (size_t)width * sizeof(*queue));
+    if (queue == NULL) {
+        fprintf(stderr, "経路探索用キューの確保に失敗しました\n");
+        free(map);
+        return 1;
+    }
+    parent_dir = malloc((size_t)height * (size_t)width * sizeof(*parent_dir));
+    if (parent_dir == NULL) {
+        fprintf(stderr, "経路復元用メモリの確保に失敗しました\n");
+        free(queue);
+        free(map);
+        return 1;
+    }
+
+    if (timespec_get(&t0, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
+    reached = solve_maze(queue, parent_dir);
+    if (reached == 0) {
+        fprintf(stderr, "入口から出口へ到達できませんでした\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
+    path_len = 1;
+    cur = (height - 1) * width + (width - 2);
+    while (parent_dir[cur] != 4) {
+        cur -= dir[parent_dir[cur]].y * width + dir[parent_dir[cur]].x;
+        path_len++;
+    }
+    if (timespec_get(&t1, TIME_UTC) == 0) {
+        fprintf(stderr, "timespec_get に失敗しました\n");
+        free(parent_dir);
+        free(queue);
+        free(map);
+        return 1;
+    }
+    solve_ms = elapsed_ms(&t0, &t1);
+
+    fprintf(stderr, "生成: %.3fms / 求解: %.3fms / 経路: %ld マス\n", gen_ms, solve_ms, path_len);
+
     print();
 
     ok = (fflush(stdout) == 0 && !ferror(stdout));
@@ -190,7 +310,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "迷路の書き出しに失敗しました\n");
     }
 
-    free(stack);
+    free(parent_dir);
+    free(queue);
     free(map);
     return ok ? 0 : 1;
 }
