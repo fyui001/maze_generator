@@ -6,6 +6,10 @@
 
 #define ROAD 0
 #define WALL 1
+#define PATH 2
+/* parent_dir 用のセンチネル。到達方向（0〜3）と衝突しない値を選ぶ */
+#define START 4
+#define UNVISITED 0xFF
 #define AT(y, x) map[(y) * (width) + (x)]
 
 int height = 11;
@@ -118,16 +122,16 @@ void open_entrance_exit(void)
 /*
 * 入口から出口までを BFS で探索し、到達できたら 1 を返す
 * queue・parent_dir は height * width 要素以上を要求する（確保は呼び出し側の責務）
-* parent_dir には親からの到達方向（dir[] の添字）が残る。4 = 入口、0xFF = 未訪問
+* parent_dir には親からの到達方向（dir[] の添字）が残る。START = 入口、UNVISITED = 未訪問
 */
 int solve(int *queue, unsigned char *parent_dir)
 {
     size_t head = 0, tail = 0;
 
-    memset(parent_dir, 0xFF, (size_t)height * (size_t)width * sizeof(*parent_dir));
+    memset(parent_dir, UNVISITED, (size_t)height * (size_t)width * sizeof(*parent_dir));
 
     queue[tail++] = entrance_index();
-    parent_dir[entrance_index()] = 4;
+    parent_dir[entrance_index()] = START;
 
     while (head < tail) {
         int idx = queue[head++];
@@ -148,7 +152,7 @@ int solve(int *queue, unsigned char *parent_dir)
                 continue;
             }
             nidx = ny * width + nx;
-            if (parent_dir[nidx] != 0xFF) {
+            if (parent_dir[nidx] != UNVISITED) {
                 continue;
             }
             parent_dir[nidx] = (unsigned char)d;
@@ -157,6 +161,29 @@ int solve(int *queue, unsigned char *parent_dir)
     }
 
     return 0;
+}
+
+/*
+* 出口から parent_dir を遡って経路長を返す。mark_path が真なら経路を PATH で塗る
+* solve が 1 を返した後にのみ呼べる
+*/
+long path_length(const unsigned char *parent_dir, int mark_path)
+{
+    long len = 1;
+    int cur = exit_index();
+
+    if (mark_path) {
+        map[cur] = PATH;
+    }
+    /* UNVISITED で止めることで dir[] の範囲外読みを構造的に防ぐ */
+    while (parent_dir[cur] < START) {
+        cur -= dir[parent_dir[cur]].y * width + dir[parent_dir[cur]].x;
+        if (mark_path) {
+            map[cur] = PATH;
+        }
+        len++;
+    }
+    return len;
 }
 
 /*
@@ -208,7 +235,6 @@ int main(int argc, char *argv[])
     int *queue;
     unsigned char *parent_dir;
     int x, y;
-    int cur;
     int reached;
     long path_len;
     double gen_ms, solve_ms;
@@ -301,12 +327,7 @@ int main(int argc, char *argv[])
         free(map);
         return 1;
     }
-    path_len = 1;
-    cur = exit_index();
-    while (parent_dir[cur] != 4) {
-        cur -= dir[parent_dir[cur]].y * width + dir[parent_dir[cur]].x;
-        path_len++;
-    }
+    path_len = path_length(parent_dir, 0);
     if (timespec_get(&t1, TIME_UTC) == 0) {
         fprintf(stderr, "timespec_get に失敗しました\n");
         free(parent_dir);
