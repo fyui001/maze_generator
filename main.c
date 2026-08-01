@@ -570,6 +570,8 @@ int main(int argc, char *argv[])
         if (write_maze_images(plain_path, solved_path, parent_dir) != 0) {
             goto cleanup;
         }
+        /* 寸法が名前に入るので、指定した基底のままのファイルは存在しない */
+        fprintf(stderr, "ファイル名: %s / %s\n", plain_path, solved_path);
     } else {
         print();
         if (fflush(stdout) != 0 || ferror(stdout)) {
