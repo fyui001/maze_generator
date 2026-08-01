@@ -232,8 +232,10 @@ static const unsigned char bmp_palette[3][3] = {
 * BITMAPFILEHEADER + BITMAPINFOHEADER + パレットを書く
 * biHeight は正値。したがってピクセルデータはボトムアップになる
 */
-void write_bmp_header(FILE *fp, int bitcount, int colors)
+void write_bmp_header(FILE *fp, int bitcount)
 {
+    /* そのビット深度が取りうる色数を全て並べる。減らすと 16 色前提のデコーダが画素の頭を読み違える */
+    int colors = 1 << bitcount;
     long image_size = bmp_row_bytes(bitcount) * height;
     long off_bits = 14L + 40L + 4L * colors;
     int i;
@@ -262,7 +264,7 @@ void write_bmp_header(FILE *fp, int bitcount, int colors)
         write_le(fp, bmp_palette[i][2], 1);
         write_le(fp, 0, 1);
     }
-    /* 4bpp を 16 色と決め打つデコーダ向けの穴埋め */
+    /* map の値に対応しない残りは黒で埋める */
     for (; i < colors; i++) {
         write_le(fp, 0, 4);
     }
@@ -273,7 +275,7 @@ void write_bmp_header(FILE *fp, int bitcount, int colors)
 * 1bit は道以外を黒とするので、経路を塗った後に呼ぶ順序ミスが壁色の線として見える
 * 4bit は map の値をそのままパレット添字に使い、上位ニブルが左のピクセル
 */
-int write_bmp(const char *path, int bitcount, int colors)
+int write_bmp(const char *path, int bitcount)
 {
     long row_bytes = bmp_row_bytes(bitcount);
     unsigned char *row;
@@ -292,12 +294,11 @@ int write_bmp(const char *path, int bitcount, int colors)
         return 1;
     }
 
-    write_bmp_header(fp, bitcount, colors);
+    write_bmp_header(fp, bitcount);
     for (file_row = 0; file_row < height; file_row++) {
         int y = height - 1 - file_row;
         /* 余りビットと行パディングを 0 のまま残す */
         memset(row, 0, (size_t)row_bytes);
-        /* 詰め方の分岐は行単位に置く。画素ごとに判定すると大きい寸法で反復数ぶんの負荷になる */
         if (bitcount == 1) {
             for (x = 0; x < width; x++) {
                 if (AT(y, x) != ROAD) {
@@ -338,11 +339,11 @@ int write_bmp(const char *path, int bitcount, int colors)
 */
 int write_maze_images(const char *plain_path, const char *solved_path, const unsigned char *parent_dir)
 {
-    if (write_bmp(plain_path, 1, 2) != 0) {
+    if (write_bmp(plain_path, 1) != 0) {
         return 1;
     }
     path_length(parent_dir, 1);
-    return write_bmp(solved_path, 4, 16);
+    return write_bmp(solved_path, 4);
 }
 
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
@@ -473,9 +474,8 @@ int main(int argc, char *argv[])
             fprintf(stderr, "画像の出力名が不正です: %s\n", image_base);
             goto cleanup;
         }
-        /* 10 は最長の寸法 "-8191x8191" の長さ。"-solved.bmp" は ".bmp" より長いので、
-        * この式ひとつで寸法込みの両方の名前を賄える */
-        psize = blen + 10 + sizeof("-solved.bmp");
+        /* "-solved.bmp" は ".bmp" より長いので、この式ひとつで寸法込みの両方の名前を賄える */
+        psize = blen + (sizeof("-8191x8191") - 1) + sizeof("-solved.bmp");
         plain_path = malloc(psize);
         solved_path = malloc(psize);
         if (plain_path == NULL || solved_path == NULL) {
@@ -483,8 +483,14 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         /* .bmp を剥がした image_base は blen の位置で終端されていないので %s は使えない */
-        snprintf(plain_path, psize, "%.*s-%dx%d.bmp", (int)blen, image_base, width, height);
-        snprintf(solved_path, psize, "%.*s-%dx%d-solved.bmp", (int)blen, image_base, width, height);
+        /* 寸法の上限を引き上げたとき、切り詰めた名前で書き出さずここで止まる */
+        if (snprintf(plain_path, psize, "%.*s-%dx%d.bmp",
+                (int)blen, image_base, width, height) >= (int)psize
+            || snprintf(solved_path, psize, "%.*s-%dx%d-solved.bmp",
+                (int)blen, image_base, width, height) >= (int)psize) {
+            fprintf(stderr, "画像の出力名が長すぎます: %s\n", image_base);
+            goto cleanup;
+        }
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
