@@ -353,12 +353,18 @@ double elapsed_ms(const struct timespec *start, const struct timespec *end)
 
 /*
 * 寸法文字列をパースする。3〜8191 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
+* 先頭は数字と '-' だけを許す。strtol が黙って読み飛ばす空白類と '+' を落としつつ、
+* '-' を通すのは -5 を範囲エラーとして報告するため
 */
 static int parse_dim(const char *s, int *out)
 {
     char *endptr;
     long v;
 
+    if ((s[0] < '0' || s[0] > '9') && s[0] != '-') {
+        fprintf(stderr, "寸法が整数ではありません: %s\n", s);
+        return 1;
+    }
     errno = 0;
     v = strtol(s, &endptr, 10);
     if (endptr == s || *endptr != '\0') {
