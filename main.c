@@ -437,6 +437,11 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "--image には出力ファイル名の基底が必要です\n");
                 goto cleanup;
             }
+            /* オプションの打ち間違いを基底名として飲み込まない。'-' 始まりの名前は ./ を付けて渡す */
+            if (argv[i + 1][0] == '-') {
+                fprintf(stderr, "--image の出力名がオプションのようです: %s\n", argv[i + 1]);
+                goto cleanup;
+            }
             image_base = argv[++i];
             continue;
         }
