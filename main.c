@@ -379,35 +379,6 @@ static int parse_dim(const char *s, int *out)
     return 0;
 }
 
-/*
-* 末尾が .bmp（大小問わず）かどうか
-*/
-int has_bmp_suffix(const char *s, size_t len)
-{
-    return len >= 4 && s[len - 4] == '.'
-        && (s[len - 3] == 'b' || s[len - 3] == 'B')
-        && (s[len - 2] == 'm' || s[len - 2] == 'M')
-        && (s[len - 1] == 'p' || s[len - 1] == 'P');
-}
-
-/*
-* .bmp を剥がした後の basename が空 / . / .. でないことを確かめる
-* 許すと ..bmp のような隠しファイルが黙って作られ、成功したのに画像が見つからなくなる
-*/
-int is_valid_base(const char *s, size_t len)
-{
-    size_t i = len;
-
-    while (i > 0 && s[i - 1] != '/') {
-        i--;
-    }
-    s += i;
-    len -= i;
-    return !(len == 0
-        || (len == 1 && s[0] == '.')
-        || (len == 2 && s[0] == '.' && s[1] == '.'));
-}
-
 int main(int argc, char *argv[])
 {
     struct timespec ts;
@@ -415,9 +386,10 @@ int main(int argc, char *argv[])
     Frame *stack = NULL;
     int *queue = NULL;
     unsigned char *parent_dir = NULL;
-    char *plain_path = NULL;
-    char *solved_path = NULL;
-    const char *image_base = NULL;
+    /* 寸法は 4 桁までなので、この最長名ぶんあれば切り詰めは起きない */
+    char plain_path[sizeof("maze-8191x8191.bmp")];
+    char solved_path[sizeof("maze-8191x8191-solved.bmp")];
+    int want_image = 0;
     const char *dims[2];
     int ndim = 0;
     int i, x, y;
@@ -429,20 +401,7 @@ int main(int argc, char *argv[])
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--image") == 0) {
-            if (image_base != NULL) {
-                fprintf(stderr, "--image は 1 回だけ指定できます\n");
-                goto cleanup;
-            }
-            if (i + 1 >= argc) {
-                fprintf(stderr, "--image には出力ファイル名の基底が必要です\n");
-                goto cleanup;
-            }
-            /* オプションの打ち間違いを基底名として飲み込まない。'-' 始まりの名前は ./ を付けて渡す */
-            if (argv[i + 1][0] == '-') {
-                fprintf(stderr, "--image の出力名がオプションのようです: %s\n", argv[i + 1]);
-                goto cleanup;
-            }
-            image_base = argv[++i];
+            want_image = 1;
             continue;
         }
         /* '-' の次が数字なら寸法として扱う。負の寸法が不明なオプションに化けるのを防ぐ */
@@ -451,7 +410,7 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         if (ndim == 2) {
-            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image BASE]\n", argv[0]);
+            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image]\n", argv[0]);
             goto cleanup;
         }
         dims[ndim++] = argv[i];
@@ -468,34 +427,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (image_base != NULL) {
-        size_t blen = strlen(image_base);
-        size_t psize;
-
-        if (has_bmp_suffix(image_base, blen)) {
-            blen -= 4;
-        }
-        if (!is_valid_base(image_base, blen)) {
-            fprintf(stderr, "画像の出力名が不正です: %s\n", image_base);
-            goto cleanup;
-        }
-        /* "-solved.bmp" は ".bmp" より長いので、この式ひとつで寸法込みの両方の名前を賄える */
-        psize = blen + (sizeof("-8191x8191") - 1) + sizeof("-solved.bmp");
-        plain_path = malloc(psize);
-        solved_path = malloc(psize);
-        if (plain_path == NULL || solved_path == NULL) {
-            fprintf(stderr, "画像用ファイル名の確保に失敗しました\n");
-            goto cleanup;
-        }
-        /* .bmp を剥がした image_base は blen の位置で終端されていないので %s は使えない */
-        /* 寸法の上限を引き上げたとき、切り詰めた名前で書き出さずここで止まる */
-        if (snprintf(plain_path, psize, "%.*s-%dx%d.bmp",
-                (int)blen, image_base, width, height) >= (int)psize
-            || snprintf(solved_path, psize, "%.*s-%dx%d-solved.bmp",
-                (int)blen, image_base, width, height) >= (int)psize) {
-            fprintf(stderr, "画像の出力名が長すぎます: %s\n", image_base);
-            goto cleanup;
-        }
+    if (want_image) {
+        snprintf(plain_path, sizeof(plain_path), "maze-%dx%d.bmp", width, height);
+        snprintf(solved_path, sizeof(solved_path), "maze-%dx%d-solved.bmp", width, height);
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
@@ -566,11 +500,11 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "生成: %.3fms / 求解: %.3fms / 経路: %ld マス\n", gen_ms, solve_ms, path_len);
 
-    if (image_base != NULL) {
+    if (want_image) {
         if (write_maze_images(plain_path, solved_path, parent_dir) != 0) {
             goto cleanup;
         }
-        /* 寸法が名前に入るので、指定した基底のままのファイルは存在しない */
+        /* 名前は固定形式だが既定寸法を覚えていないと予測できないので出す */
         fprintf(stderr, "ファイル名: %s / %s\n", plain_path, solved_path);
     } else {
         print();
@@ -583,8 +517,6 @@ int main(int argc, char *argv[])
     status = 0;
 
 cleanup:
-    free(solved_path);
-    free(plain_path);
     free(parent_dir);
     free(queue);
     free(stack);
