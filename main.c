@@ -257,10 +257,15 @@ void write_bmp_header(FILE *fp, int bitcount, int colors)
     write_le(fp, 0, 4);
 
     for (i = 0; i < colors; i++) {
-        write_le(fp, bmp_palette[i][0], 1);
-        write_le(fp, bmp_palette[i][1], 1);
-        write_le(fp, bmp_palette[i][2], 1);
-        write_le(fp, 0, 1);
+        /* map の値に対応するのは bmp_palette の分だけ。残りは 4bpp を 16 色と決め打つデコーダ向けの穴埋め */
+        if (i < (int)(sizeof(bmp_palette) / sizeof(*bmp_palette))) {
+            write_le(fp, bmp_palette[i][0], 1);
+            write_le(fp, bmp_palette[i][1], 1);
+            write_le(fp, bmp_palette[i][2], 1);
+            write_le(fp, 0, 1);
+        } else {
+            write_le(fp, 0, 4);
+        }
     }
 }
 
@@ -338,7 +343,7 @@ int write_maze_images(const char *plain_path, const char *solved_path, const uns
         return 1;
     }
     path_length(parent_dir, 1);
-    return write_bmp(solved_path, 4, 3);
+    return write_bmp(solved_path, 4, 16);
 }
 
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
