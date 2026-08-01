@@ -465,6 +465,7 @@ int main(int argc, char *argv[])
 
     if (image_base != NULL) {
         size_t blen = strlen(image_base);
+        size_t psize;
 
         if (has_bmp_suffix(image_base, blen)) {
             blen -= 4;
@@ -473,17 +474,18 @@ int main(int argc, char *argv[])
             fprintf(stderr, "画像の出力名が不正です: %s\n", image_base);
             goto cleanup;
         }
-        /* "-solved.bmp" は ".bmp" より長いので、この式ひとつで両方の名前を賄える */
-        plain_path = malloc(blen + sizeof("-solved.bmp"));
-        solved_path = malloc(blen + sizeof("-solved.bmp"));
+        /* 10 は最長の寸法 "-8191x8191" の長さ。"-solved.bmp" は ".bmp" より長いので、
+        * この式ひとつで寸法込みの両方の名前を賄える */
+        psize = blen + 10 + sizeof("-solved.bmp");
+        plain_path = malloc(psize);
+        solved_path = malloc(psize);
         if (plain_path == NULL || solved_path == NULL) {
             fprintf(stderr, "画像用ファイル名の確保に失敗しました\n");
             goto cleanup;
         }
-        memcpy(plain_path, image_base, blen);
-        memcpy(plain_path + blen, ".bmp", sizeof(".bmp"));
-        memcpy(solved_path, image_base, blen);
-        memcpy(solved_path + blen, "-solved.bmp", sizeof("-solved.bmp"));
+        /* .bmp を剥がした image_base は blen の位置で終端されていないので %s は使えない */
+        snprintf(plain_path, psize, "%.*s-%dx%d.bmp", (int)blen, image_base, width, height);
+        snprintf(solved_path, psize, "%.*s-%dx%d-solved.bmp", (int)blen, image_base, width, height);
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
