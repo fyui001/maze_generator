@@ -446,7 +446,7 @@ int main(int argc, char *argv[])
             goto cleanup;
         }
         if (ndim == 2) {
-            fprintf(stderr, "使用法: %s [DIM | HEIGHT WIDTH] [--image BASE]\n", argv[0]);
+            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image BASE]\n", argv[0]);
             goto cleanup;
         }
         dims[ndim++] = argv[i];
@@ -458,7 +458,7 @@ int main(int argc, char *argv[])
         }
         width = height;
     } else if (ndim == 2) {
-        if (parse_dim(dims[0], &height) != 0 || parse_dim(dims[1], &width) != 0) {
+        if (parse_dim(dims[0], &width) != 0 || parse_dim(dims[1], &height) != 0) {
             goto cleanup;
         }
     }
