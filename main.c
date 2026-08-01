@@ -265,12 +265,13 @@ void write_bmp_header(FILE *fp, int bitcount, int colors)
 }
 
 /*
-* 迷路を 1bit 白黒 2 色の BMP に書き出す。行バッファ 1 本だけを使い回す
-* 道以外を黒とするので、経路を塗った後に呼ぶ順序ミスが壁色の線として見える
+* 迷路を BMP に書き出す。行バッファ 1 本だけを使い回す
+* 1bit は道以外を黒とするので、経路を塗った後に呼ぶ順序ミスが壁色の線として見える
+* 4bit は map の値をそのままパレット添字に使い、上位ニブルが左のピクセル
 */
-int write_bmp_1bit(const char *path)
+int write_bmp(const char *path, int bitcount, int colors)
 {
-    long row_bytes = bmp_row_bytes(1);
+    long row_bytes = bmp_row_bytes(bitcount);
     unsigned char *row;
     FILE *fp;
     int file_row, x, failed, saved_errno;
@@ -287,14 +288,22 @@ int write_bmp_1bit(const char *path)
         return 1;
     }
 
-    write_bmp_header(fp, 1, 2);
+    write_bmp_header(fp, bitcount, colors);
     for (file_row = 0; file_row < height; file_row++) {
         int y = height - 1 - file_row;
         /* 余りビットと行パディングを 0 のまま残す */
         memset(row, 0, (size_t)row_bytes);
-        for (x = 0; x < width; x++) {
-            if (AT(y, x) != ROAD) {
-                row[x / 8] |= (unsigned char)(0x80u >> (x % 8));
+        /* 詰め方の分岐は行単位に置く。画素ごとに判定すると大きい寸法で反復数ぶんの負荷になる */
+        if (bitcount == 1) {
+            for (x = 0; x < width; x++) {
+                if (AT(y, x) != ROAD) {
+                    row[x / 8] |= (unsigned char)(0x80u >> (x % 8));
+                }
+            }
+        } else {
+            for (x = 0; x < width; x++) {
+                unsigned char v = AT(y, x);
+                row[x / 2] |= (unsigned char)((x % 2 == 0) ? (v << 4) : v);
             }
         }
         if (fwrite(row, 1, (size_t)row_bytes, fp) != (size_t)row_bytes) {
@@ -320,66 +329,16 @@ int write_bmp_1bit(const char *path)
 }
 
 /*
-* 迷路を 4bit パレット 3 色の BMP に書き出す。上位ニブルが左のピクセル
-*/
-int write_bmp_4bit(const char *path)
-{
-    long row_bytes = bmp_row_bytes(4);
-    unsigned char *row;
-    FILE *fp;
-    int file_row, x, failed, saved_errno;
-
-    row = malloc((size_t)row_bytes);
-    if (row == NULL) {
-        fprintf(stderr, "画像用行バッファの確保に失敗しました\n");
-        return 1;
-    }
-    fp = fopen(path, "wb");
-    if (fp == NULL) {
-        fprintf(stderr, "画像ファイルのオープンに失敗しました: %s: %s\n", path, strerror(errno));
-        free(row);
-        return 1;
-    }
-
-    write_bmp_header(fp, 4, 3);
-    for (file_row = 0; file_row < height; file_row++) {
-        int y = height - 1 - file_row;
-        memset(row, 0, (size_t)row_bytes);
-        for (x = 0; x < width; x++) {
-            unsigned char v = AT(y, x);
-            row[x / 2] |= (unsigned char)((x % 2 == 0) ? (v << 4) : v);
-        }
-        if (fwrite(row, 1, (size_t)row_bytes, fp) != (size_t)row_bytes) {
-            break;
-        }
-    }
-
-    failed = (file_row < height) || ferror(fp);
-    saved_errno = errno;
-    free(row);
-    if (fclose(fp) != 0) {
-        saved_errno = errno;
-        failed = 1;
-    }
-    if (failed) {
-        fprintf(stderr, "画像の書き出しに失敗しました: %s: %s\n", path, strerror(saved_errno));
-        remove(path);
-        return 1;
-    }
-    return 0;
-}
-
-/*
 * 迷路画像と解答画像を書き出す
 * 経路を塗るのは 1 枚目を書いた後。先に塗ると 1bit の 2 値表現が壊れる
 */
 int write_maze_images(const char *plain_path, const char *solved_path, const unsigned char *parent_dir)
 {
-    if (write_bmp_1bit(plain_path) != 0) {
+    if (write_bmp(plain_path, 1, 2) != 0) {
         return 1;
     }
     path_length(parent_dir, 1);
-    return write_bmp_4bit(solved_path);
+    return write_bmp(solved_path, 4, 3);
 }
 
 double elapsed_ms(const struct timespec *start, const struct timespec *end)
