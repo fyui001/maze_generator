@@ -14,6 +14,9 @@
 
 int height = 11;
 int width = 21;
+/* 画像の寸法。偶数指定を外周壁 1px の増し厚で吸収するため、迷路の寸法とは独立に持つ */
+int img_height = 11;
+int img_width = 21;
 unsigned char *map = NULL;
 
 struct {
@@ -218,7 +221,7 @@ void write_le(FILE *fp, unsigned long v, int n)
 */
 long bmp_row_bytes(int bitcount)
 {
-    return ((long)bitcount * width + 31L) / 32L * 4L;
+    return ((long)bitcount * img_width + 31L) / 32L * 4L;
 }
 
 /* 添字が map の値と一致するので変換がいらない。要素は RGBQUAD の {B, G, R} */
@@ -236,7 +239,7 @@ void write_bmp_header(FILE *fp, int bitcount)
 {
     /* そのビット深度が取りうる色数を全て並べる。減らすと 16 色前提のデコーダが画素の頭を読み違える */
     int colors = 1 << bitcount;
-    long image_size = bmp_row_bytes(bitcount) * height;
+    long image_size = bmp_row_bytes(bitcount) * img_height;
     long off_bits = 14L + 40L + 4L * colors;
     int i;
 
@@ -247,8 +250,8 @@ void write_bmp_header(FILE *fp, int bitcount)
     write_le(fp, 0, 2);
     write_le(fp, (unsigned long)off_bits, 4);
     write_le(fp, 40, 4);
-    write_le(fp, (unsigned long)width, 4);
-    write_le(fp, (unsigned long)height, 4);
+    write_le(fp, (unsigned long)img_width, 4);
+    write_le(fp, (unsigned long)img_height, 4);
     write_le(fp, 1, 2);
     write_le(fp, (unsigned long)bitcount, 2);
     write_le(fp, 0, 4);
@@ -268,6 +271,21 @@ void write_bmp_header(FILE *fp, int bitcount)
     for (; i < colors; i++) {
         write_le(fp, 0, 4);
     }
+}
+
+/*
+* 画像座標の画素値。迷路の外周は偶数指定の余りを吸収する増し厚の壁
+* ただし出口の真下だけは塞がないよう出口セルの値を貫通させる
+*/
+static unsigned char pixel_at(int y, int x)
+{
+    if (y < height && x < width) {
+        return AT(y, x);
+    }
+    if (y == height && x == width - 2) {
+        return AT(height - 1, width - 2);
+    }
+    return WALL;
 }
 
 /*
@@ -295,19 +313,19 @@ int write_bmp(const char *path, int bitcount)
     }
 
     write_bmp_header(fp, bitcount);
-    for (file_row = 0; file_row < height; file_row++) {
-        int y = height - 1 - file_row;
+    for (file_row = 0; file_row < img_height; file_row++) {
+        int y = img_height - 1 - file_row;
         /* 余りビットと行パディングを 0 のまま残す */
         memset(row, 0, (size_t)row_bytes);
         if (bitcount == 1) {
-            for (x = 0; x < width; x++) {
-                if (AT(y, x) != ROAD) {
+            for (x = 0; x < img_width; x++) {
+                if (pixel_at(y, x) != ROAD) {
                     row[x / 8] |= (unsigned char)(0x80u >> (x % 8));
                 }
             }
         } else {
-            for (x = 0; x < width; x++) {
-                unsigned char v = AT(y, x);
+            for (x = 0; x < img_width; x++) {
+                unsigned char v = pixel_at(y, x);
                 row[x / 2] |= (unsigned char)((x % 2 == 0) ? (v << 4) : v);
             }
         }
@@ -317,7 +335,7 @@ int write_bmp(const char *path, int bitcount)
     }
 
     /* 小さい画像は stdio のバッファに収まるため fclose の flush でしか失敗が分からない */
-    failed = (file_row < height) || ferror(fp);
+    failed = (file_row < img_height) || ferror(fp);
     /* free など後続の libc 呼び出しに上書きされる前に失敗理由を退避する */
     saved_errno = errno;
     free(row);
@@ -352,7 +370,8 @@ double elapsed_ms(const struct timespec *start, const struct timespec *end)
 }
 
 /*
-* 寸法文字列をパースする。3〜8191 の奇数のみ受け付け、long のまま判定して桁あふれも弾く
+* 寸法文字列をパースする。3〜8191 を受け付け、long のまま判定して桁あふれも弾く
+* 偶数の可否は用途で変わる（--wallpaper のみ）ためここでは判定しない
 * 先頭は数字と '-' だけを許す。strtol が黙って読み飛ばす空白類と '+' を落としつつ、
 * '-' を通すのは -5 を範囲エラーとして報告するため
 */
@@ -371,8 +390,8 @@ static int parse_dim(const char *s, int *out)
         fprintf(stderr, "寸法が整数ではありません: %s\n", s);
         return 1;
     }
-    if (v < 3 || v > 8191 || v % 2 != 1) {
-        fprintf(stderr, "寸法は 3〜8191 の奇数で指定してください: %s\n", s);
+    if (v < 3 || v > 8191) {
+        fprintf(stderr, "寸法は 3〜8191 で指定してください: %s\n", s);
         return 1;
     }
     *out = (int)v;
@@ -390,6 +409,7 @@ int main(int argc, char *argv[])
     char plain_path[sizeof("maze-8191x8191.bmp")];
     char solved_path[sizeof("maze-8191x8191-solved.bmp")];
     int want_image = 0;
+    int wallpaper = 0;
     const char *dims[2];
     int ndim = 0;
     int i, x, y;
@@ -404,32 +424,47 @@ int main(int argc, char *argv[])
             want_image = 1;
             continue;
         }
+        if (strcmp(argv[i], "--wallpaper") == 0) {
+            wallpaper = 1;
+            continue;
+        }
         /* '-' の次が数字なら寸法として扱う。負の寸法が不明なオプションに化けるのを防ぐ */
         if (argv[i][0] == '-' && (argv[i][1] < '0' || argv[i][1] > '9')) {
             fprintf(stderr, "不明なオプション: %s\n", argv[i]);
             goto cleanup;
         }
         if (ndim == 2) {
-            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image]\n", argv[0]);
+            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image] [--wallpaper]\n", argv[0]);
             goto cleanup;
         }
         dims[ndim++] = argv[i];
     }
 
     if (ndim == 1) {
-        if (parse_dim(dims[0], &height) != 0) {
+        if (parse_dim(dims[0], &img_height) != 0) {
             goto cleanup;
         }
-        width = height;
+        img_width = img_height;
     } else if (ndim == 2) {
-        if (parse_dim(dims[0], &width) != 0 || parse_dim(dims[1], &height) != 0) {
+        if (parse_dim(dims[0], &img_width) != 0 || parse_dim(dims[1], &img_height) != 0) {
             goto cleanup;
         }
     }
+    /* 偶数を許すのは壁紙用途だけ。迷路の寸法として指定されたなら従来通り奇数のみ */
+    if (!wallpaper && (img_width % 2 == 0 || img_height % 2 == 0)) {
+        fprintf(stderr, "偶数の寸法は --wallpaper でのみ指定できます\n");
+        goto cleanup;
+    }
+    /* 壁紙が欲しいのに端末出力では意味がないので画像出力を含意する */
+    if (wallpaper) {
+        want_image = 1;
+    }
+    width = (img_width % 2 == 0) ? img_width - 1 : img_width;
+    height = (img_height % 2 == 0) ? img_height - 1 : img_height;
 
     if (want_image) {
-        snprintf(plain_path, sizeof(plain_path), "maze-%dx%d.bmp", width, height);
-        snprintf(solved_path, sizeof(solved_path), "maze-%dx%d-solved.bmp", width, height);
+        snprintf(plain_path, sizeof(plain_path), "maze-%dx%d.bmp", img_width, img_height);
+        snprintf(solved_path, sizeof(solved_path), "maze-%dx%d-solved.bmp", img_width, img_height);
     }
 
     /* 同一秒内の連続実行でも異なる迷路になるようナノ秒も混ぜる */
