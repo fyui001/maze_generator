@@ -371,7 +371,7 @@ double elapsed_ms(const struct timespec *start, const struct timespec *end)
 
 /*
 * 寸法文字列をパースする。3〜8191 を受け付け、long のまま判定して桁あふれも弾く
-* 偶数は画像の寸法として保持し、迷路は 1 小さい奇数で生成して外周壁の増し厚で吸収する
+* 偶数の可否は用途で変わる（--wallpaper のみ）ためここでは判定しない
 * 先頭は数字と '-' だけを許す。strtol が黙って読み飛ばす空白類と '+' を落としつつ、
 * '-' を通すのは -5 を範囲エラーとして報告するため
 */
@@ -409,6 +409,7 @@ int main(int argc, char *argv[])
     char plain_path[sizeof("maze-8191x8191.bmp")];
     char solved_path[sizeof("maze-8191x8191-solved.bmp")];
     int want_image = 0;
+    int wallpaper = 0;
     const char *dims[2];
     int ndim = 0;
     int i, x, y;
@@ -423,13 +424,17 @@ int main(int argc, char *argv[])
             want_image = 1;
             continue;
         }
+        if (strcmp(argv[i], "--wallpaper") == 0) {
+            wallpaper = 1;
+            continue;
+        }
         /* '-' の次が数字なら寸法として扱う。負の寸法が不明なオプションに化けるのを防ぐ */
         if (argv[i][0] == '-' && (argv[i][1] < '0' || argv[i][1] > '9')) {
             fprintf(stderr, "不明なオプション: %s\n", argv[i]);
             goto cleanup;
         }
         if (ndim == 2) {
-            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image]\n", argv[0]);
+            fprintf(stderr, "使用法: %s [DIM | WIDTH HEIGHT] [--image] [--wallpaper]\n", argv[0]);
             goto cleanup;
         }
         dims[ndim++] = argv[i];
@@ -444,6 +449,15 @@ int main(int argc, char *argv[])
         if (parse_dim(dims[0], &img_width) != 0 || parse_dim(dims[1], &img_height) != 0) {
             goto cleanup;
         }
+    }
+    /* 偶数を許すのは壁紙用途だけ。迷路の寸法として指定されたなら従来通り奇数のみ */
+    if (!wallpaper && (img_width % 2 == 0 || img_height % 2 == 0)) {
+        fprintf(stderr, "偶数の寸法は --wallpaper でのみ指定できます\n");
+        goto cleanup;
+    }
+    /* 壁紙が欲しいのに端末出力では意味がないので画像出力を含意する */
+    if (wallpaper) {
+        want_image = 1;
     }
     width = (img_width % 2 == 0) ? img_width - 1 : img_width;
     height = (img_height % 2 == 0) ? img_height - 1 : img_height;
